@@ -122,4 +122,8 @@ export class CreateProductDto {
   @IsOptional()
   @MaxLength(500)
   metaDescription?: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  vendorId: string; //
 }

@@ -1,7 +1,7 @@
 // src/user/dto/query-user.dto.ts
 import { IsOptional, IsEnum, IsNumber, IsString, Min } from 'class-validator';
-import { Transform, Type } from 'class-transformer';
-import { UserStatus, Gender } from '@prisma/client';
+import { Type } from 'class-transformer';
+import { UserStatus, Gender, UserRole } from '@prisma/client';
 
 export class QueryUserDto {
   @IsNumber()
@@ -27,6 +27,10 @@ export class QueryUserDto {
   @IsEnum(Gender)
   @IsOptional()
   gender?: Gender;
+
+  @IsEnum(UserRole)
+  @IsOptional()
+  role?: UserRole;
 
   @IsString()
   @IsOptional()

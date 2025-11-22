@@ -1,3 +1,4 @@
+// src/user/dto/create-user.dto.ts
 import {
   IsString,
   IsEmail,
@@ -11,7 +12,7 @@ import {
   IsNotEmpty,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
-import { Gender, UserStatus } from '@prisma/client';
+import { Gender, UserStatus, UserRole } from '@prisma/client';
 
 export class CreateUserDto {
   @IsString()
@@ -48,6 +49,11 @@ export class CreateUserDto {
   @IsEnum(Gender)
   @IsOptional()
   gender?: Gender;
+
+  @IsEnum(UserRole)
+  @IsOptional()
+  @Transform(({ value }) => value || UserRole.USER)
+  role?: UserRole;
 
   @IsEnum(UserStatus)
   @IsOptional()

@@ -4,9 +4,10 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 import { PrismaErrorHandler } from 'src/prisma/prisma-error.utils';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -78,6 +79,7 @@ export class UserService {
   }
 
   // Get all users with pagination and filtering
+
   async findAll(params?: {
     skip?: number;
     take?: number;
@@ -100,6 +102,7 @@ export class UserService {
           avatarUrl: true,
           dateOfBirth: true,
           gender: true,
+          role: true,
           status: true,
           emailVerifiedAt: true,
           phoneVerifiedAt: true,
@@ -112,6 +115,8 @@ export class UserService {
               orders: true,
               reviews: true,
               wishlists: true,
+              vendorsOwned: true,
+              payoutsRequested: true,
             },
           },
         },
@@ -137,6 +142,7 @@ export class UserService {
         search,
         status,
         gender,
+        role,
         sortBy = 'createdAt',
         sortOrder = 'desc',
       } = query;
@@ -161,6 +167,10 @@ export class UserService {
         where.gender = gender;
       }
 
+      if (role) {
+        where.role = role;
+      }
+
       const [users, total] = await Promise.all([
         this.prisma.user.findMany({
           skip,
@@ -175,6 +185,7 @@ export class UserService {
             avatarUrl: true,
             dateOfBirth: true,
             gender: true,
+            role: true,
             status: true,
             emailVerifiedAt: true,
             phoneVerifiedAt: true,
@@ -187,6 +198,8 @@ export class UserService {
                 orders: true,
                 reviews: true,
                 wishlists: true,
+                vendorsOwned: true,
+                payoutsRequested: true,
               },
             },
           },
@@ -259,12 +272,35 @@ export class UserService {
               },
             },
           },
+          vendorsOwned: {
+            include: {
+              _count: {
+                select: {
+                  products: true,
+                  vendorOrders: true,
+                },
+              },
+            },
+          },
+          payoutsRequested: {
+            take: 10,
+            orderBy: { createdAt: 'desc' },
+            include: {
+              vendor: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
           _count: {
             select: {
               addresses: true,
               orders: true,
               reviews: true,
               wishlists: true,
+              vendorsOwned: true,
+              payoutsRequested: true,
               couponUsages: true,
             },
           },
@@ -291,6 +327,183 @@ export class UserService {
     }
   }
 
+  // Get user with vendors (for vendor users)
+  async findUserWithVendors(id: string) {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id },
+        include: {
+          vendorsOwned: {
+            include: {
+              _count: {
+                select: {
+                  products: true,
+                  vendorOrders: true,
+                },
+              },
+              vendorOrders: {
+                where: {
+                  // status: 'COMPLETED',
+                },
+                select: {
+                  totalAmount: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!user) {
+        throw new NotFoundException(`User with ID ${id} not found`);
+      }
+
+      // Remove password hash from response
+      const { passwordHash, ...userResponse } = user;
+
+      // Calculate vendor stats
+      const vendorStats = {
+        // totalVendors: user.vendorsOwned.length,
+        // activeVendors: user.vendorsOwned.filter(v => v.status === 'APPROVED').length,
+        // pendingVendors: user.vendorsOwned.filter(v => v.status === 'PENDING').length,
+        // totalProducts: user.vendorsOwned.reduce((sum, vendor) => sum + vendor._count.products, 0),
+        // totalEarnings: user.vendorsOwned.reduce((sum, vendor) => {
+        //   const vendorEarnings = vendor.vendorOrders.reduce((earnings, order) => {
+        //     const commission = (order.totalAmount * vendor.commissionPct) / 100;
+        //     return earnings + (order.totalAmount - commission);
+        //   }, 0);
+        //   return sum + vendorEarnings;
+        // }, 0),
+      };
+
+      return {
+        ...userResponse,
+        vendorStats,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.errorHandler.handleError(
+        error,
+        this.userErrorOptions,
+        `Failed to fetch user with vendors for ID ${id}`,
+      );
+    }
+  }
+
+  // Update user details
+  async update(
+    id: string,
+    updateUserDto: UpdateUserDto,
+    currentUserId?: string,
+    isAdmin: boolean = false,
+  ) {
+    try {
+      // Check if user exists
+      const userExists = await this.prisma.user.findUnique({
+        where: { id },
+      });
+
+      if (!userExists) {
+        throw new NotFoundException(`User with ID ${id} not found`);
+      }
+
+      // Only allow users to update their own profile, unless admin
+      if (!isAdmin && currentUserId !== id) {
+        throw new ForbiddenException('You can only update your own profile');
+      }
+
+      // Prevent users from changing their own role
+      if (
+        !isAdmin &&
+        updateUserDto.role &&
+        updateUserDto.role !== userExists.role
+      ) {
+        throw new ForbiddenException('You cannot change your own role');
+      }
+
+      const updatedUser = await this.prisma.user.update({
+        where: { id },
+        data: updateUserDto,
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          phone: true,
+          avatarUrl: true,
+          dateOfBirth: true,
+          gender: true,
+          role: true,
+          status: true,
+          emailVerifiedAt: true,
+          phoneVerifiedAt: true,
+          lastLoginAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      return {
+        message: 'User updated successfully',
+        user: updatedUser,
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException
+      ) {
+        throw error;
+      }
+      this.errorHandler.handleError(
+        error,
+        this.userErrorOptions,
+        `Failed to update user with ID ${id}`,
+      );
+    }
+  }
+
+  // Update user role (admin only)
+  async updateRole(id: string, role: UserRole) {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id },
+      });
+
+      if (!user) {
+        throw new NotFoundException(`User with ID ${id} not found`);
+      }
+
+      const updatedUser = await this.prisma.user.update({
+        where: { id },
+        data: { role },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          role: true,
+          status: true,
+        },
+      });
+
+      return {
+        message: `User role updated to ${role} successfully`,
+        user: updatedUser,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.errorHandler.handleError(
+        error,
+        this.userErrorOptions,
+        `Failed to update user role with ID ${id}`,
+      );
+    }
+  }
+
   // Get user by email
   async findByEmail(email: string) {
     try {
@@ -311,55 +524,6 @@ export class UserService {
         error,
         this.userErrorOptions,
         `Failed to fetch user with email ${email}`,
-      );
-    }
-  }
-
-  // Update user details
-  async update(id: string, updateUserDto: UpdateUserDto) {
-    try {
-      // Check if user exists
-      const userExists = await this.prisma.user.findUnique({
-        where: { id },
-      });
-
-      if (!userExists) {
-        throw new NotFoundException(`User with ID ${id} not found`);
-      }
-
-      const updatedUser = await this.prisma.user.update({
-        where: { id },
-        data: updateUserDto,
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          email: true,
-          phone: true,
-          avatarUrl: true,
-          dateOfBirth: true,
-          gender: true,
-          status: true,
-          emailVerifiedAt: true,
-          phoneVerifiedAt: true,
-          lastLoginAt: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
-
-      return {
-        message: 'User updated successfully',
-        user: updatedUser,
-      };
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      this.errorHandler.handleError(
-        error,
-        this.userErrorOptions,
-        `Failed to update user with ID ${id}`,
       );
     }
   }
@@ -559,67 +723,6 @@ export class UserService {
   }
 
   // Get user statistics
-  async getStats() {
-    try {
-      const [
-        totalUsers,
-        activeUsers,
-        verifiedUsers,
-        usersByGender,
-        usersByStatus,
-        newUsersThisMonth,
-      ] = await Promise.all([
-        this.prisma.user.count(),
-        this.prisma.user.count({ where: { status: 'ACTIVE' } }),
-        this.prisma.user.count({ where: { emailVerifiedAt: { not: null } } }),
-        this.prisma.user.groupBy({
-          by: ['gender'],
-          _count: {
-            _all: true,
-          },
-          where: {
-            gender: { not: null },
-          },
-        }),
-        this.prisma.user.groupBy({
-          by: ['status'],
-          _count: {
-            _all: true,
-          },
-        }),
-        this.prisma.user.count({
-          where: {
-            createdAt: {
-              gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
-            },
-          },
-        }),
-      ]);
-
-      const stats = {
-        totalUsers,
-        activeUsers,
-        verifiedUsers,
-        usersByGender: usersByGender.map((item) => ({
-          gender: item.gender,
-          count: item._count._all,
-        })),
-        usersByStatus: usersByStatus.map((item) => ({
-          status: item.status,
-          count: item._count._all,
-        })),
-        newUsersThisMonth,
-      };
-
-      return stats;
-    } catch (error) {
-      this.errorHandler.handleError(
-        error,
-        this.userErrorOptions,
-        'Failed to fetch user statistics',
-      );
-    }
-  }
 
   // Get user profile (without sensitive relations)
   async getProfile(id: string) {
@@ -669,6 +772,168 @@ export class UserService {
         this.userErrorOptions,
         `Failed to fetch profile for user with ID ${id}`,
       );
+    }
+  }
+
+  // Get user statistics (updated for vendor relationships)
+  async getStats() {
+    try {
+      const [
+        totalUsers,
+        activeUsers,
+        verifiedUsers,
+        usersByGender,
+        usersByStatus,
+        usersByRole,
+        newUsersThisMonth,
+        vendorUsers,
+      ] = await Promise.all([
+        this.prisma.user.count(),
+        this.prisma.user.count({ where: { status: 'ACTIVE' } }),
+        this.prisma.user.count({ where: { emailVerifiedAt: { not: null } } }),
+        this.prisma.user.groupBy({
+          by: ['gender'],
+          _count: {
+            _all: true,
+          },
+          where: {
+            gender: { not: null },
+          },
+        }),
+        this.prisma.user.groupBy({
+          by: ['status'],
+          _count: {
+            _all: true,
+          },
+        }),
+        this.prisma.user.groupBy({
+          by: ['role'],
+          _count: {
+            _all: true,
+          },
+        }),
+        this.prisma.user.count({
+          where: {
+            createdAt: {
+              gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+            },
+          },
+        }),
+        this.prisma.user.count({
+          where: {
+            vendorsOwned: {
+              some: {},
+            },
+          },
+        }),
+      ]);
+
+      const stats = {
+        totalUsers,
+        activeUsers,
+        verifiedUsers,
+        usersByGender: usersByGender.map((item) => ({
+          gender: item.gender,
+          count: item._count._all,
+        })),
+        usersByStatus: usersByStatus.map((item) => ({
+          status: item.status,
+          count: item._count._all,
+        })),
+        usersByRole: usersByRole.map((item) => ({
+          role: item.role,
+          count: item._count._all,
+        })),
+        vendorUsers,
+        newUsersThisMonth,
+      };
+
+      return stats;
+    } catch (error) {
+      this.errorHandler.handleError(
+        error,
+        this.userErrorOptions,
+        'Failed to fetch user statistics',
+      );
+    }
+  }
+
+  // Get vendors for a user
+  async getUserVendors(userId: string) {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          vendorsOwned: {
+            include: {
+              _count: {
+                select: {
+                  products: true,
+                  vendorOrders: true,
+                },
+              },
+            },
+            orderBy: { createdAt: 'desc' },
+          },
+        },
+      });
+
+      if (!user) {
+        throw new NotFoundException(`User with ID ${userId} not found`);
+      }
+
+      return user.vendorsOwned;
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.errorHandler.handleError(
+        error,
+        this.userErrorOptions,
+        `Failed to fetch vendors for user ${userId}`,
+      );
+    }
+  }
+
+  // Check if user can become a vendor
+  async canBecomeVendor(
+    userId: string,
+  ): Promise<{ canBecome: boolean; reason?: string }> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          vendorsOwned: true,
+        },
+      });
+
+      if (!user) {
+        return { canBecome: false, reason: 'User not found' };
+      }
+
+      // Check if user already has a vendor account
+      if (user.vendorsOwned.length > 0) {
+        return {
+          canBecome: false,
+          reason: 'User already has a vendor account',
+        };
+      }
+
+      // Check if user email is verified
+      if (!user.emailVerifiedAt) {
+        return {
+          canBecome: false,
+          reason: 'Email must be verified to become a vendor',
+        };
+      }
+
+      // Additional business rules can be added here
+      // e.g., minimum order history, account age, etc.
+
+      return { canBecome: true };
+    } catch (error) {
+      console.error('Error checking vendor eligibility:', error);
+      return { canBecome: false, reason: 'Error checking eligibility' };
     }
   }
 }

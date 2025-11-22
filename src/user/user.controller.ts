@@ -14,6 +14,7 @@ import {
   UseInterceptors,
   ClassSerializerInterceptor,
   UseGuards,
+  Req,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -34,6 +35,7 @@ import {
   UserListResponseDto,
   UserDetailResponseDto,
   UserStatsResponseDto,
+  UserWithVendorsResponseDto,
 } from './dto/user-response.dto';
 
 import { UserRole } from '@prisma/client';
@@ -300,6 +302,92 @@ export class UserController {
     return {
       success: true,
       data: stats,
+    };
+  }
+
+  @Get(':id/vendors')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get vendors owned by a user' })
+  @ApiParam({ name: 'id', description: 'User ID' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'User vendors retrieved successfully',
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'User not found',
+  })
+  async getUserVendors(@Param('id', ParseUUIDPipe) id: string) {
+    const vendors = await this.userService.getUserVendors(id);
+    return {
+      success: true,
+      data: vendors,
+    };
+  }
+
+  @Get(':id/with-vendors')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get user with vendor information' })
+  @ApiParam({ name: 'id', description: 'User ID' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'User with vendors retrieved successfully',
+    type: UserWithVendorsResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'User not found',
+  })
+  async findUserWithVendors(@Param('id', ParseUUIDPipe) id: string) {
+    const user = await this.userService.findUserWithVendors(id);
+    return {
+      success: true,
+      data: user,
+    };
+  }
+
+  @Put(':id/role')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update user role (admin only)' })
+  @ApiParam({ name: 'id', description: 'User ID' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'User role updated successfully',
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'User not found',
+  })
+  async updateRole(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('role') role: UserRole,
+  ) {
+    const result = await this.userService.updateRole(id, role);
+    return {
+      success: true,
+      message: result.message,
+      data: result.user,
+    };
+  }
+
+  @Get('can-become-vendor')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Check if user can become a vendor' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Vendor eligibility check completed',
+  })
+  async canBecomeVendor(@Req() req: any) {
+    const userId = req.user.id;
+    const result = await this.userService.canBecomeVendor(userId);
+    return {
+      success: true,
+      data: result,
     };
   }
 }
