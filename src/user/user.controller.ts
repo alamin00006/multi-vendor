@@ -37,7 +37,9 @@ import {
 } from './dto/user-response.dto';
 
 import { UserRole } from '@prisma/client';
-import { JwtAuthGuard, Roles, RolesGuard } from './user.utils';
+import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { RolesGuard } from 'src/auth/guards/roles.guard';
+import { Roles } from 'src/auth/decorators/roles.decorator';
 
 @ApiTags('users')
 @Controller('users')
