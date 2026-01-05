@@ -1,4 +1,3 @@
-// src/user-address/user-address.module.ts
 import { Module } from '@nestjs/common';
 import { UserAddressService } from './user-address.service';
 import { UserAddressController } from './user-address.controller';

@@ -560,11 +560,48 @@ export class ProductAttributeValueService {
         );
       }
 
-      // TODO: Implement usage tracking with product variants
-      // This would require querying product variants that use this attribute value
+      // Get usage count in product variants
+      const usageCount = await this.prisma.productVariant.count({
+        where: {
+          variantAttributes: {
+            path: ['$'],
+            array_contains: [
+              {
+                attributeId: attributeValue.attributeId,
+                valueId: attributeValueId,
+              },
+            ],
+          },
+        },
+      });
 
-      const usageCount = 0; // Placeholder - implement based on your variant structure
-      const products = []; // Placeholder - implement based on your variant structure
+      // Get products that use this attribute value
+      const products = await this.prisma.product.findMany({
+        where: {
+          variants: {
+            some: {
+              variantAttributes: {
+                path: ['$'],
+                array_contains: [
+                  {
+                    attributeId: attributeValue.attributeId,
+                    valueId: attributeValueId,
+                  },
+                ],
+              },
+            },
+          },
+        },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          featuredImageUrl: true,
+          basePrice: true,
+          isPublished: true,
+        },
+        take: 10,
+      });
 
       const stats = {
         attributeValueId,
