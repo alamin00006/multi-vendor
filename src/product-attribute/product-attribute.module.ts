@@ -1,4 +1,3 @@
-// src/product-attribute/product-attribute.module.ts
 import { Module } from '@nestjs/common';
 import { ProductAttributeService } from './product-attribute.service';
 import { ProductAttributeController } from './product-attribute.controller';

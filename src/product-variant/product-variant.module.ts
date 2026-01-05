@@ -1,4 +1,3 @@
-// src/product-variant/product-variant.module.ts
 import { Module } from '@nestjs/common';
 import { ProductVariantService } from './product-variant.service';
 import { ProductVariantController } from './product-variant.controller';
